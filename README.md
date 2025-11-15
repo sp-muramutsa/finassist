@@ -8,9 +8,6 @@ This repository contains a minimal, runnable prototype of the FinAssist LLM app 
 - Includes a minimal static frontend (index.html) to interact with the chat API
 
 
----
-
-
 ## File layout
 
 
@@ -25,11 +22,8 @@ This repository contains a minimal, runnable prototype of the FinAssist LLM app 
 - sample_docs/ (place PDFs here)
 
 
----
-
-
 ### FILE: README.md
-```markdown
+
 # FinAssist - Local Prototype
 
 
@@ -78,5 +72,4 @@ This writes `faiss.index` and `meta.json` in the repo root.
 6. Start the MCP server:
 
 
-```bash
----
+
