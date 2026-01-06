@@ -1,46 +1,82 @@
-# chat_agent.py
-import os, requests, openai, json
-openai.api_key = os.environ["OPENAI_API_KEY"]
+"""Chat agent that orchestrates MCP search + OpenAI with Pydantic models."""
+
+from __future__ import annotations
+
+import os
+import requests
+import openai
+from typing import List
+
+from models import ChatRequest, ChatResponse, SearchHit, Chunk
+
+openai.api_key = os.environ.get("OPENAI_API_KEY")
 MCP_URL = os.environ.get("MCP_URL", "http://localhost:8001")
 MCP_KEY = os.environ.get("MCP_API_KEY", "devkey")
+DEFAULT_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 
-def call_mcp_search(query, top_k=3):
-    r = requests.post(MCP_URL + "/mcp/search",
-                      headers={"Authorization": f"Bearer {MCP_KEY}"},
-                      json={"query": query, "top_k": top_k})
-    r.raise_for_status()
-    return r.json()["results"]
 
-def build_system_prompt():
+def call_mcp_search(query: str, top_k: int) -> List[SearchHit]:
+    resp = requests.post(
+        f"{MCP_URL}/mcp/search",
+        headers={"Authorization": f"Bearer {MCP_KEY}"},
+        json={"query": query, "top_k": top_k},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    payload = resp.json()
+    return [SearchHit(**item) for item in payload.get("results", [])]
+
+
+def build_system_prompt() -> str:
     return (
-        "You are FinAssist, a financial-document assistant. When asked a question, "
-        "first request evidence by calling the MCP search tool with the user's query; "
-        "if results are returned, fetch the most relevant passages and cite them (source + page). "
-        "Always include a short summary answer plus citations and, when appropriate, suggest follow-ups."
+        "You are FinAssist, a financial-document assistant. "
+        "Use the provided evidence to craft concise answers with citations (source + page). "
+        "If evidence is weak or missing, state assumptions and suggest follow-up data to fetch."
     )
 
-def respond(user_query):
-    # 1) call MCP search
-    hits = call_mcp_search(user_query, top_k=4)
-    # 2) prepare context chunks
+
+def respond(req: ChatRequest) -> ChatResponse:
+    try:
+        hits = call_mcp_search(req.question, top_k=req.top_k)
+    except Exception:
+        hits = []
+
     context_snippets = []
     for h in hits:
-        context_snippets.append(f"Source: {h['meta']['meta']['source']} page {h['meta']['meta']['page']} score:{h['score']}\n{h['meta']['text'][:800]}")
+        context_snippets.append(
+            f"Source: {h.chunk.meta.source} page {h.chunk.meta.page} score:{h.score}\n{h.chunk.text[:800]}"
+        )
 
-    # 3) call OpenAI with evidence and instruction to cite
     messages = [
-        {"role":"system", "content": build_system_prompt()},
-        {"role":"user", "content": user_query},
-        {"role":"assistant", "content": "Use the following evidence to answer and cite sources:\n" + "\n---\n".join(context_snippets)}
+        {"role": "system", "content": build_system_prompt()},
+        {"role": "user", "content": req.question},
     ]
+    if context_snippets:
+        messages.append(
+            {
+                "role": "assistant",
+                "content": "Use the following evidence to answer and cite sources:\n"
+                + "\n---\n".join(context_snippets),
+            }
+        )
+
+    model_name = req.model or DEFAULT_MODEL
     resp = openai.ChatCompletion.create(
-        model="gpt-4o-mini", # example - pick model available
+        model=model_name,
         messages=messages,
-        temperature=0.0,
-        max_tokens=600
+        temperature=req.temperature,
+        max_tokens=600,
     )
-    return resp["choices"][0]["message"]["content"]
+    answer = resp["choices"][0]["message"]["content"]
+    citations: List[Chunk] = [h.chunk for h in hits]
+
+    return ChatResponse(answer=answer, citations=citations, used_model=model_name)
+
 
 if __name__ == "__main__":
-    q = "Summarize the revenue recognition policy referenced in the attached 2023 financial report."
-    print(respond(q))
+    demo_request = ChatRequest(
+        question="Summarize the revenue recognition policy referenced in the attached 2023 financial report.",
+        top_k=4,
+        temperature=0.0,
+    )
+    print(respond(demo_request))

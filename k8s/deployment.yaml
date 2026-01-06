@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: finassist
+  labels:
+    app: finassist
+spec:
+  replicas: 3  
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: finassist
+  template:
+    metadata:
+      labels:
+        app: finassist
+    spec:
+      securityContext: 
+        runAsUser: 1000
+        runAsGroup: 3000
+        fsGroup: 2000
+      containers:
+        - name: finassist
+          image: docker-username/finassist:v1.2.0 
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+          
+          env:
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: finassist-secrets
+                  key: OPENAI_API_KEY
+            - name: MCP_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: finassist-secrets
+                  key: MCP_API_KEY
+            - name: MCP_URL
+              value: "http://mcp-service.default.svc.cluster.local:8000"
+          
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10 
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          
+          volumeMounts:
+            - name: index-data
+              mountPath: /app/data 
+              readOnly: true
+      
+      volumes:
+        - name: index-data
+          persistentVolumeClaim:
+            claimName: finassist-pvc

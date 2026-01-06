@@ -1,14 +1,31 @@
-# api.py
+"""FastAPI application entrypoint for the FinAssist service."""
+
 from fastapi import FastAPI
-from pydantic import BaseModel
+from fastapi.middleware.cors import CORSMiddleware
+
 from chat_agent import respond
+from mcp_server import router as mcp_router
+from models import ChatRequest, ChatResponse
 
-app = FastAPI()
+app = FastAPI(title="FinAssist API", version="1.0.0")
 
-class ChatRequest(BaseModel):
-    question: str
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-@app.post("/chat")
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
+@app.post("/chat", response_model=ChatResponse)
 def chat(req: ChatRequest):
-    ans = respond(req.question)
-    return {"answer": ans}
+    return respond(req)
+
+
+# Expose MCP routes under /mcp
+app.include_router(mcp_router)

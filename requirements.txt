@@ -1,6 +1,8 @@
 fastapi
-uvicorn
+uvicorn[standard]
 openai
 faiss-cpu
+numpy
+pymupdf
 python-dotenv
-pypdf
+requests
